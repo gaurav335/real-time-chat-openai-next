@@ -1,0 +1,8 @@
+
+{
+  "name": "VoxAI - Intelligent Audio Chatbot",
+  "description": "A high-performance chatbot that allows users to upload audio files and converse with Gemini 3 Flash to analyze, transcribe, and reason over audio content.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
