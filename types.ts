@@ -1,15 +1,21 @@
 
+type MessageChunk = {
+  seq: number;
+  text: string;
+};
 export interface Message {
   id: string;
   role: 'user' | 'model';
+  seq?: number;
   text: string;
+  chunks?: MessageChunk[];   // 👈 NEW
   audio?: {
     base64: string;
     name: string;
     url: string;
     mimeType: string;
   };
-  timestamp: Date;
+  timestamp?: Date;
 }
 
 export interface AudioFile {

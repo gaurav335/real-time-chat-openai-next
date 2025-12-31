@@ -45,12 +45,29 @@ const App: React.FC = () => {
       },
     ];
   };
+  const textBufferRef = useRef<Map<number, string>>(new Map());
+  const expectedSeqRef = useRef(0);
+  const messageIdRef = useRef<string | null>(null);
+
   let audioQueue: Uint8Array[] = [];
-  let audioContext = new AudioContext();
   let isPlaying = false;
+  let audioContext: AudioContext | null = null;
+  const audioBufferMap = new Map<number, AudioBuffer>();
+  let expectedSeq = 0;
+  let nextPlayTime = 0;
+  let schedulerRunning = false;
+  function initAudio() {
+    if (!audioContext) {
+      audioContext = new AudioContext();
+      nextPlayTime = audioContext.currentTime + 0.05; // slight safety delay
+    }
+  }
+  useEffect(() => {
+    initAudio();
+  }, []);
   useEffect(() => {
     const socketIo = io("https://35b8c02a1be1.ngrok-free.app", {
-      // const socketIo = io("http://localhost:7777", {
+    // const socketIo = io("http://localhost:7777", {
       transports: ["websocket"],
       secure: true,
       reconnection: true,
@@ -89,21 +106,29 @@ const App: React.FC = () => {
     //   setIsLoading(false);
     // });
 
-    socketIo.on("ai-audio-chunk", (msg: any) => {
+    socketIo.on("ai-audio-chunk", async (msg: any) => {
       const data: any = {
         id: msg.id,
         role: "model" as const,
         text: msg.text,
         partial: true,
       };
-      setMessages((prev) => upsertMessage(prev, data));
-      const binary = atob(msg?.base64Audio || "");
-      const buffer = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        buffer[i] = binary.charCodeAt(i);
+      // setMessages((prev) => upsertMessage(prev, data));
+      if (!messageIdRef.current) {
+        messageIdRef.current = msg.id;
       }
-      audioQueue.push(buffer);
-      playNext();
+      textBufferRef.current.set(msg.seq, msg.text);
+
+      const audioBuffer = await decodeBase64Audio(msg.base64Audio);
+      audioBufferMap.set(msg.seq, audioBuffer);
+      startScheduler();
+      // const binary = atob(msg?.base64Audio || "");
+      // const buffer = new Uint8Array(binary.length);
+      // for (let i = 0; i < binary.length; i++) {
+      //   buffer[i] = binary.charCodeAt(i);
+      // }
+      // audioQueue.push(buffer);
+      // playNext();
     });
     socketIo.on("ai-audio-complete", (msg: Message) => {
       setIsLoading(false);
@@ -115,37 +140,110 @@ const App: React.FC = () => {
     };
   }, []);
 
-  async function playNext() {
-    if (isPlaying) return; // 🚫 already playing
-    if (audioQueue.length === 0) return;
+  function startScheduler() {
+    if (schedulerRunning) return;
+    schedulerRunning = true;
 
-    isPlaying = true;
-
-    const chunk: any = audioQueue.shift();
-    if (!chunk || !audioContext) {
-      isPlaying = false;
-      return;
-    }
-
-    try {
-      const audioBuffer = await audioContext.decodeAudioData(chunk.buffer);
+    requestAnimationFrame(scheduleLoop);
+  }
+  function scheduleLoop() {
+    while (audioBufferMap.has(expectedSeq)) {
+      const buffer = audioBufferMap.get(expectedSeq)!;
+      audioBufferMap.delete(expectedSeq);
 
       const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
+      source.buffer = buffer;
       source.connect(audioContext.destination);
+      const startTime = Math.max(nextPlayTime, audioContext.currentTime + 0.01);
+      source.start(startTime);
+      flushTextForSeq(expectedSeq);
 
-      source.onended = () => {
-        isPlaying = false;
-        playNext(); // 🔁 play next chunk
-      };
+      nextPlayTime = startTime + buffer.duration;
+      expectedSeq++;
+    }
 
-      source.start();
-    } catch (err) {
-      console.error("Audio decode error:", err);
-      isPlaying = false;
-      playNext();
+    // Stop scheduler if nothing left
+    if (audioBufferMap.has(expectedSeq)) {
+      requestAnimationFrame(scheduleLoop);
+    } else {
+      schedulerRunning = false;
     }
   }
+
+  function flushTextForSeq(seq: number) {
+    const text = textBufferRef.current.get(seq);
+    if (!text) return;
+
+    textBufferRef.current.delete(seq);
+
+    setMessages((prev) => {
+      const id = messageIdRef.current!;
+      const index = prev.findIndex((m) => m.id === id);
+
+      if (index !== -1) {
+        const updated = [...prev];
+        updated[index] = {
+          ...updated[index],
+          text: `${updated[index].text} ${text}`.trim(),
+        };
+        return updated;
+      }
+
+      return [
+        ...prev,
+        {
+          id,
+          role: "model",
+          text,
+          partial: true,
+          timestamp: new Date(),
+        },
+      ];
+    });
+  }
+
+  async function decodeBase64Audio(base64: string): Promise<AudioBuffer> {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    return audioContext.decodeAudioData(bytes.buffer);
+  }
+
+  // async function playNext() {
+  //   if (isPlaying) return; // 🚫 already playing
+  //   if (audioQueue.length === 0) return;
+
+  //   isPlaying = true;
+
+  //   const chunk: any = audioQueue.shift();
+  //   if (!chunk || !audioContext) {
+  //     isPlaying = false;
+  //     return;
+  //   }
+
+  //   try {
+  //     const audioBuffer = await audioContext.decodeAudioData(chunk.buffer);
+
+  //     const source = audioContext.createBufferSource();
+  //     source.buffer = audioBuffer;
+  //     source.connect(audioContext.destination);
+
+  //     source.onended = () => {
+  //       isPlaying = false;
+  //       playNext(); // 🔁 play next chunk
+  //     };
+
+  //     source.start();
+  //   } catch (err) {
+  //     console.error("Audio decode error:", err);
+  //     isPlaying = false;
+  //     playNext();
+  //   }
+  // }
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -178,7 +276,7 @@ const App: React.FC = () => {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if ((!inputValue.trim() && !selectedAudio) || isLoading) return;
-    // setIsLoading(true);
+    setIsLoading(true);
     const randomUid = Math.random().toString(36).substring(2, 32);
     const userMessage: Message = {
       id: randomUid,
