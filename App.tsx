@@ -66,8 +66,8 @@ const App: React.FC = () => {
     initAudio();
   }, []);
   useEffect(() => {
-    const socketIo = io("https://35b8c02a1be1.ngrok-free.app", {
-    // const socketIo = io("http://localhost:7777", {
+    // const socketIo = io("https://35b8c02a1be1.ngrok-free.app", {
+    const socketIo = io("http://localhost:7777", {
       transports: ["websocket"],
       secure: true,
       reconnection: true,
@@ -278,6 +278,7 @@ const App: React.FC = () => {
     if ((!inputValue.trim() && !selectedAudio) || isLoading) return;
     setIsLoading(true);
     const randomUid = Math.random().toString(36).substring(2, 32);
+    const randomUidNew = Math.random().toString(36).substring(2, 32);
     const userMessage: Message = {
       id: randomUid,
       role: "user",
@@ -297,6 +298,7 @@ const App: React.FC = () => {
     setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
     setSelectedAudio(null);
+
     if (selectedAudio === null) {
       socket?.emit("question", { ...userMessage, socketID });
     } else {
@@ -307,10 +309,10 @@ const App: React.FC = () => {
         const chunk = await audioFile
           .slice(offset, offset + CHUNK_SIZE)
           .arrayBuffer();
-        await socket.emit("audio-chunk-with-voice", { chunk });
+        await socket.emit("audio-chunk-with-voice", { responseId:randomUidNew,chunk });
         offset += CHUNK_SIZE;
       }
-      await socket.emit("audio-end-with-voice", null);
+      await socket.emit("audio-end-with-voice", {responseId:randomUidNew});
     }
   };
 
