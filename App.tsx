@@ -66,8 +66,8 @@ const App: React.FC = () => {
     initAudio();
   }, []);
   useEffect(() => {
-    // const socketIo = io("https://35b8c02a1be1.ngrok-free.app", {
-    const socketIo = io("http://localhost:7777", {
+    const socketIo = io("https://35b8c02a1be1.ngrok-free.app", {
+    // const socketIo = io("http://localhost:7777", {
       transports: ["websocket"],
       secure: true,
       reconnection: true,
